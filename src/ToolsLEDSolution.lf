@@ -62,7 +62,7 @@ reaction(led_mode) -> onSignal, shortPause, mediumPause, longPause {=
 
 reaction(shortPause) -> offSignal, next {=
     lf_set(offSignal, false);
-    lf_set(next, self->index++);
+    lf_set(next, self->index++); // Trigger next in sequence
 =}
 
 reaction(mediumPause) -> offSignal, next {=
@@ -106,12 +106,12 @@ reaction(next) -> trigger {=
 }
 
 main reactor {
-seq = new LightSequence()
-led = new LED()
-start = new StartSequence()
+    seq = new LightSequence()
+    led = new LED()
+    start = new StartSequence()
 
-seq.onSignal -> led.on
-seq.offSignal -> led.off
-seq.next -> start.next after 0
-start.trigger -> seq.led_mode 
+    seq.onSignal -> led.on
+    seq.offSignal -> led.off
+    seq.next -> start.next after 0
+    start.trigger -> seq.led_mode 
 }
