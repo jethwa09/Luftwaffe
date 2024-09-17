@@ -1,0 +1,43 @@
+// Now, examine the LF program. How is the timing of the LED controlled here? 
+// You may want to consult the Lingua Franca documentation for timers. 
+// Modify the Blink.lf program to use two timers, one that turns on the LED and one that turns it off, 
+//eliminating the state variable led_on. Put your modified program in a file called ToolsBlinkSolution.lf.
+
+/**
+ * Blink the default LED on the
+ * <a href="https://www.pololu.com/docs/0J86">Pololu 3pi+ 2040 robot</a>.
+ * @author Abhi Gundrala
+ * @author Edward A. Lee
+ */
+ target C {
+    platform: {
+        name: "rp2040",
+        board: "pololu_3pi_2040_robot"
+    },
+    single-threaded: true
+    }
+    
+    preamble {=
+    #include <stdio.h>
+    #include <pico/stdlib.h>
+    #include <hardware/gpio.h>
+=}
+    
+main reactor {
+    timer t1(0, 250 ms)
+    timer t2(0, 500 ms)
+
+    reaction(startup) {=
+        gpio_init(PICO_DEFAULT_LED_PIN);
+        gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+    =}
+
+    reaction(t1) {=
+        gpio_put(PICO_DEFAULT_LED_PIN, true);
+    =}
+
+    reaction(t2) {=
+        gpio_put(PICO_DEFAULT_LED_PIN, false);
+    =}
+}
+      
