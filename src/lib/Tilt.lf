@@ -1,0 +1,31 @@
+target C {
+    platform: "RP2040",
+    single-threaded: true
+}
+
+preamble {=
+    #include <stdio.h>
+    #include <math.h>
+=}
+
+
+reactor Tilt {
+    input ax: float
+    input ay: float
+    input az: float
+    output pitch: float
+    output roll: float
+    output yaw: float
+    
+    preamble {=
+        float calculate_tilt(float a1, float a2, float a3) {
+            return atan(a1 / sqrt(a2*a2 + a3*a3));
+        }
+    =}
+
+    reaction(ax, ay, az) -> pitch, roll, yaw {=
+        lf_set(pitch, calculate_tilt(ax, ay, az)); 
+        lf_set(roll, calculate_tilt(ay, ax, az));
+        lf_set(yaw, calculate_tilt(az, ay, ax)); 
+    =}
+}
