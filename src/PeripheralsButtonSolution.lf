@@ -9,7 +9,7 @@ platform: {
     name: "rp2040",
     board: "pololu_3pi_2040_robot"
 },
-single-threaded: true
+    single-threaded: true
 }
 import Display from "lib/Display.lf"
 
@@ -29,11 +29,11 @@ main reactor {
         gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
     =}
 
-    reaction(t) {=
+    reaction(t) -> d.line0 {=
         self->led_on = ((1ul << 25) & GPIO_IN);
         static char buf0[20];
     
-        snprintf(buf0, 20, "GPIOPIN 25: %2.4f", self->led_on->value);
+        snprintf(buf0, 20, "GPIOPIN 25: %2.4f", self->led_on);
     
         lf_set(d.line0, buf0);
     =}
