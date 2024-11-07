@@ -1,0 +1,29 @@
+target C {
+    platform: {
+      name: "rp2040",
+      board: "pololu_3pi_2040_robot"
+    },
+    single-threaded: true,
+    keepalive: true
+}
+
+preamble {=
+    #include <stdio.h>
+    #include <pico/stdlib.h>
+    #include <hardware/gpio.h>
+=}
+
+main reactor {
+    preamble {=
+        uint gpio = 25;
+        uint32_t = 1;
+        bool enabled = false;
+
+        void callback(void *arg) {
+            printf("Args: %d", *arg);
+        }
+
+        gpio_set_irq_enabled_with_callback(uint gpio, uint32_t event_mask, bool enabled, gpio_irq_callback_t callback); // designates callback function
+    =}
+}
+

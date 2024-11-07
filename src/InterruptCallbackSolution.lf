@@ -1,0 +1,27 @@
+target C {
+    platform: {
+        name: "rp2040",
+        board: "pololu_3pi_2040_robot"
+    },
+    single-threaded: true,
+    keepalive: true
+}
+
+preamble {=
+    #include <stdio.h>
+    #include <pico/stdlib.h>
+    #include <hardware/gpio.h>
+    
+    static void callback_fcn(void) {
+        printf("Pushbutton Button A detected\n");
+    }
+=}
+
+main reactor {
+    
+    reaction(startup) {=
+        gpio_init(25);
+        gpio_set_dir(25, GPIO_IN);
+        gpio_set_irq_enabled_with_callback(25, GPIO_IRQ_LEVEL_LOW, true, callback_fcn);
+    =}
+}

@@ -1,0 +1,41 @@
+target C {
+    platform: {
+        name: "rp2040",
+        board: "pololu_3pi_2040_robot"
+    },
+    single-threaded: true,
+    keepalive: true
+}
+
+main reactor {
+    preamble {=
+        #include <stdio.h>
+        #include <pico/stdlib.h>
+        #include <hardware/gpio.h>
+        
+        static void* action;  
+        
+        static void gpio_callback(void) {
+            lf_schedule(action, 0); 
+        }
+    =}
+    
+    physical action a
+    
+    reaction(startup) -> a {=
+        action = a;
+        
+        gpio_init(25);
+        gpio_set_dir(25, GPIO_IN);
+        
+        gpio_set_irq_enabled_with_callback(25,GPIO_IRQ_LEVEL_LOW, true, gpio_callback);
+    =}
+    
+    reaction(a) {=
+        static instant_t first_press; 
+        static instant_t second_press = 0;
+        first_press = lf_time_logical();
+        printf("Difference: %lld ms\n", (first_press - second_press) / MSEC(1));
+        second_press = first_press;
+    =}
+}

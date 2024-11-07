@@ -24,7 +24,6 @@
   main reactor {
     timer t(0, 250 ms)
     state led_on: bool = false
-    // 000000000100000000000000 << 25
     reaction(startup) {=
       gpio_init(PICO_DEFAULT_LED_PIN);
       gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);

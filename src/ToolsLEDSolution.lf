@@ -22,87 +22,87 @@ preamble {=
 =}
 
 reactor LightSequence {
-input led_mode: int
-output onSignal: bool
-output offSignal: bool
-output next: int
-state index: int = 1 
+    input led_mode: int
+    output onSignal: bool
+    output offSignal: bool
+    output next: int
+    state index: int = 1 
 
-logical action shortPause(250 ms): int
-logical action mediumPause(750 ms): int
-logical action longPause(1750 ms): int
+    logical action shortPause(250 ms): int
+    logical action mediumPause(750 ms): int
+    logical action longPause(1750 ms): int
 
-// reaction(start) -> set_led {=
-//     // Start the sequence when the start signal is received
-//     lf_set(set_led, false);  // Ensure LED is off at start
-//     lf_schedule_int(self, 0, base_time);  // Schedule first event
-// =}
+    // reaction(start) -> set_led {=
+    //     // Start the sequence when the start signal is received
+    //     lf_set(set_led, false);  // Ensure LED is off at start
+    //     lf_schedule_int(self, 0, base_time);  // Schedule first event
+    // =}
 
-reaction(led_mode) -> onSignal, shortPause, mediumPause, longPause {=
-    switch (led_mode->value) {
-        case 1:
-            lf_set(onSignal, true);  // short on - dot
-            lf_schedule_int(shortPause, 0, 1);
-            break;
-        case 2:
-            lf_set(onSignal, true);  // long on - dash
-            lf_schedule_int(mediumPause, 0, 1);
-            break;
-        case 3:
-            lf_schedule_int(shortPause, 0, 1); // short off
-            break;
-        case 4:
-            lf_schedule_int(mediumPause, 0, 1);  // medium off
-            break;
-        case 5: 
-            lf_schedule_int(longPause, 0, 1); // long off
-            break;
-    }
-=}
+    reaction(led_mode) -> onSignal, shortPause, mediumPause, longPause {=
+        switch (led_mode->value) {
+            case 1:
+                lf_set(onSignal, true);  // short on - dot
+                lf_schedule_int(shortPause, 0, 1);
+                break;
+            case 2:
+                lf_set(onSignal, true);  // long on - dash
+                lf_schedule_int(mediumPause, 0, 1);
+                break;
+            case 3:
+                lf_schedule_int(shortPause, 0, 1); // short off
+                break;
+            case 4:
+                lf_schedule_int(mediumPause, 0, 1);  // medium off
+                break;
+            case 5: 
+                lf_schedule_int(longPause, 0, 1); // long off
+                break;
+        }
+    =}
 
-reaction(shortPause) -> offSignal, next {=
-    lf_set(offSignal, false);
-    lf_set(next, self->index++); // Trigger next in sequence
-=}
+    reaction(shortPause) -> offSignal, next {=
+        lf_set(offSignal, false);
+        lf_set(next, self->index++); // Trigger next in sequence
+    =}
 
-reaction(mediumPause) -> offSignal, next {=
-    lf_set(offSignal, false);
-    lf_set(next, self->index++);
-=}
+    reaction(mediumPause) -> offSignal, next {=
+        lf_set(offSignal, false);
+        lf_set(next, self->index++);
+    =}
 
-reaction(longPause) -> offSignal, next {=
-    lf_set(offSignal, false);
-    lf_set(next, self->index++);
-=}
+    reaction(longPause) -> offSignal, next {=
+        lf_set(offSignal, false);
+        lf_set(next, self->index++);
+    =}
 }
 
 reactor StartSequence {
-input next: int
-output trigger: int // sends output to light sequence to start
+    input next: int
+    output trigger: int // sends output to light sequence to start
 
-preamble {=
-    int blink_sequence[] = {1, 3, 1, 3, 1, 3, 1, 4, // h
-                            1, 4, // e
-                            1, 3, 2, 3, 1, 3, 1, 4, // l 
-                            1, 3, 2, 3, 1, 3, 1, 4, // l
-                            2, 3, 2, 3, 2, 5, // o
-                            1, 3, 2, 3, 2, 4, // w
-                            2, 3, 2, 3, 2, 4, // o
-                            1, 3, 2, 3, 1, 4, // r
-                            1, 3, 2, 3, 1, 3, 1, 4, // l
-                            2, 3, 1, 3, 1}; // d,  1 - short on, 2- long on, 3 - short off, 4 - medium off, 5 - long off
-    int n = sizeof(blink_sequence) / sizeof(blink_sequence[0]);
-=}
+    preamble {=
+        int blink_sequence[] = {1, 3, 1, 3, 1, 3, 1, 4, // h
+                                1, 4, // e
+                                1, 3, 2, 3, 1, 3, 1, 4, // l 
+                                1, 3, 2, 3, 1, 3, 1, 4, // l
+                                2, 3, 2, 3, 2, 5, // o
+                                1, 3, 2, 3, 2, 4, // w
+                                2, 3, 2, 3, 2, 4, // o
+                                1, 3, 2, 3, 1, 4, // r
+                                1, 3, 2, 3, 1, 3, 1, 4, // l
+                                2, 3, 1, 3, 1}; // d,  1 - short on, 2- long on, 3 - short off, 4 - medium off, 5 - long off
+        int n = sizeof(blink_sequence) / sizeof(blink_sequence[0]);
+    =}
 
-reaction(startup) -> trigger {=
-    lf_set(trigger, blink_sequence[0]);  // Start the sequence
-=}
+    reaction(startup) -> trigger {=
+        lf_set(trigger, blink_sequence[0]);  // Start the sequence
+    =}
 
-reaction(next) -> trigger {=
-    if (next->value < n) {
-        lf_set(trigger, blink_sequence[next->value]);
-    }
-=}
+    reaction(next) -> trigger {=
+        if (next->value < n) {
+            lf_set(trigger, blink_sequence[next->value]);
+        }
+    =}
 }
 
 main reactor {

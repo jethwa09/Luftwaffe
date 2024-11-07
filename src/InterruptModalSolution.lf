@@ -1,0 +1,69 @@
+target C {
+    platform: {
+        name: "rp2040",
+        board: "pololu_3pi_2040_robot"
+    },
+    single-threaded: true
+}
+
+import Display from "lib/Display.lf"
+
+preamble {=
+    #include <stdio.h>
+    #include <pico/stdlib.h>
+    #include <hardware/gpio.h>
+=}
+
+main reactor {
+    my_dis = new Display()
+    timer a(0, 1ms)
+    state UP_FLAG: bool = false
+    state count: int = 0
+    
+    reaction(startup) {=
+        gpio_init(PICO_DEFAULT_LED_PIN);
+        gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_IN);
+    =}
+
+    initial mode UP {
+        timer up_timer(0, 1s)  
+        
+        reaction(up_timer) -> my_dis.line0, my_dis.line1 {=
+            self->count++;
+            static char buf[30];
+            snprintf(buf, 30, "Count: %d", self->count);
+            lf_set(my_dis.line0, "UP");
+            lf_set(my_dis.line1, buf);
+        =}
+        
+        reaction(a) -> history(DOWN) {=
+            bool current_button = gpio_get(PICO_DEFAULT_LED_PIN);
+            
+            if (!current_button && self->UP_FLAG) {
+                lf_set_mode(DOWN);
+            }
+            self->UP_FLAG = current_button;
+        =}
+    }
+
+    mode DOWN {
+        timer down_timer(0, 2s)
+        
+        reaction(down_timer) -> my_dis.line0, my_dis.line1 {=
+            self->count--;
+            static char buf[30];
+            snprintf(buf, 30, "Count: %d", self->count);
+            lf_set(my_dis.line0, "DOWN");
+            lf_set(my_dis.line1, buf);
+        =}
+        
+        reaction(a) -> history(UP) {=
+            bool current_button = gpio_get(PICO_DEFAULT_LED_PIN);
+            
+            if (!current_button && self->UP_FLAG) {
+                lf_set_mode(UP);
+            }
+            self->UP_FLAG = current_button;
+        =}
+    }
+}
