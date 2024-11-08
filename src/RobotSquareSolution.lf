@@ -33,8 +33,7 @@ reactor Robot {
                 lf_set_mode(DRIVING);
                 lf_set(notify, "DRIVING");
                 lf_set(motors.left_power, 0.1f);
-                lf_set(motors.right_power, 0.1f);
-                
+                lf_set(motors.right_power, 0.1f); 
             }
         =}
     }
@@ -70,15 +69,22 @@ main reactor {
     logical action start_turn
     logical action start_drive
 
+    state drive_mode: string = "INIT"
+    state start_left: int
+    state start_angle: int
+
+    timer check_mode(0, 10 ms)
     timer t(0, 100 ms)
 
     preamble {=
-        int32_t start_left, start_right;
-        
-
         float calculate_wheel_distance(int32_t start, int32_t current) {
-            int32_t delta = abs(start - start_left);
-            return delta * 3.14159 * 3.175;
+            int32_t delta = abs(start - current); // Delta is change in degrees
+            printf("delta: %f\n", start - current);
+            return (delta / 360) * 3.14159 * 3.175; // Wheel diameter of 3.175 mm
+        }
+
+        float calculate_angle_delta(float start, float current) {
+            return abs(current - start);
         }
     =}
 
@@ -91,23 +97,32 @@ main reactor {
         lf_schedule(start_drive, MSEC(1000));
     =}
 
-    reaction(start_turn, gyro_angle.z) -> robot.drive, start_drive {=
-        lf_set(robot.drive, "TURNING");
-        // float start_angle = gyro_angle.z->value;
-        // while (abs(start_angle - gyro_angle.z->value) < 90){
-        // }
-        lf_schedule(start_drive, MSEC(1000));
-    =}
-
     reaction(start_drive, encoder.left, encoder.right) -> robot.drive, start_turn {=
         lf_set(robot.drive, "DRIVING");
-        // start_left = encoder.left;
-        // start_right = encoder.right;
-        // while (calculate_wheel_distance(start_left, encoder.left) < 1000) {
-        // }
-        lf_schedule(start_turn, MSEC(1000));
+        self->drive_mode = "DRIVING";
+        self->start_left = encoder.left->value;
     =}
-        
+
+    reaction(start_turn, gyro_angle.z) -> robot.drive, start_drive {=
+        lf_set(robot.drive, "TURNING");
+        self->drive_mode = "TURNING";
+        self->start_angle = gyro_angle.z->value;
+    =}
+
+    reaction(check_mode, encoder.left, gyro_angle.z) -> start_drive, start_turn {=
+        if (self->drive_mode == "DRIVING") {
+            printf("start: %d\n", start_left);
+            printf("current: %d\n", encoder.left->value);
+            if (calculate_wheel_distance(start_left, encoder.left->value) >= 1000) {
+                lf_schedule(start_turn, 0);
+            }
+        }  else if (self->drive_mode == "TURNING") {
+            if (calculate_angle_delta >= 90) {
+                lf_schedule(start_drive, 0);
+            }
+        }
+    =}
+
     reaction(gyro_angle.z)  -> display.line0 {=
         static char buf[17];
         snprintf(buf, 17, "z: %.1f", gyro_angle.z->value);
@@ -120,9 +135,9 @@ main reactor {
         lf_set(display.line1, buf);
     =}
 
-    reaction(gyro_angle.y)  -> display.line2 {=
+    reaction(check_mode)  -> display.line2 {=
         static char buf[17];
-        snprintf(buf, 17, "y: %.1f", gyro_angle.y->value);
+        snprintf(buf, 17, "mode: %s", self->drive_mode);
         lf_set(display.line2, buf);
     =}
 
