@@ -32,8 +32,8 @@ reactor Robot {
         if (drive->value == "DRIVING") {
                 lf_set_mode(DRIVING);
                 lf_set(notify, "DRIVING");
-                lf_set(motors.left_power, 0.1f);
                 lf_set(motors.right_power, 0.1f); 
+                lf_set(motors.left_power, 0.106f);
             }
         =}
     }
@@ -55,7 +55,7 @@ reactor Robot {
                 lf_set_mode(DRIVING);
                 lf_set(notify, "DRIVING");
                 lf_set(motors.right_power, 0.1f);
-                lf_set(motors.left_power, 0.1f);
+                lf_set(motors.left_power, 0.106f);
             }  
         =}
     }
