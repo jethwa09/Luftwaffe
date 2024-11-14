@@ -1,0 +1,96 @@
+/**
+ * Template for robot driving lab exercises. This template just periodically switches between a
+ * STOPPED and a DRIVING mode, updating the LCD display on each change of mode.
+ */
+
+ target C {
+    platform: {
+        name: "rp2040",
+        board: "pololu_3pi_2040_robot"
+    },
+        single-threaded: true
+}
+
+import Motors from "lib/Motors.lf"
+import Display from "lib/Display.lf"
+import Encoders from "lib/Encoders.lf"
+
+preamble {=
+
+=}
+
+reactor Robot {
+    input drive: bool      // Toggle mode.
+    output notify: string
+
+    motors = new Motors()
+
+    reaction(startup) -> notify {=
+        lf_set(notify, "INIT");
+    =}
+
+    initial mode STOPPED {
+        reaction(drive) -> reset(DRIVING), notify, motors.left_power, motors.right_power {=
+        if (drive->value) {
+                lf_set_mode(DRIVING);
+                lf_set(notify, "DRIVING");
+                lf_set(motors.left_power, 0.1f);
+                lf_set(motors.right_power, 0.1f);
+                
+            }
+        =}
+    }
+
+    mode DRIVING {
+        reaction(drive) -> reset(STOPPED), notify, motors.left_power, motors.right_power {=
+            if (!drive->value) {
+                lf_set_mode(STOPPED);
+                lf_set(notify, "STOPPED");
+                lf_set(motors.left_power, 0.0f);
+                lf_set(motors.right_power, 0.0f);
+            }
+        =}
+    }
+}
+
+main reactor {
+
+
+    preamble {=
+        #include <math.h>
+    =}
+    timer t(0, 2 sec)
+    timer t2(0, 2 msec)
+    state drive: bool
+
+    robot = new Robot()
+    encoder = new Encoders()
+    display = new Display()
+
+    robot.notify -> display.line0
+
+    reaction(t2) -> encoder.trigger {=
+        lf_set(encoder.trigger, true);
+      =}
+    reaction (t) -> robot.drive {=
+        lf_set(robot.drive, self->drive);
+        // Toggle the drive state variable for next time.
+        self->drive = !self->drive;
+    =}
+
+reaction(encoder.left, encoder.right) -> display.line2 {=
+    static char buf[33];
+    const float wheel_diameter = 3.175; // cm
+    const float wheel_circumference = M_PI * wheel_diameter;
+    const int ticks_per_revolution = 360; // Assuming 360 ticks per revolution
+    int left_ticks = encoder.left->value;
+    int right_ticks = encoder.right->value;
+
+    float left_distance = (left_ticks * wheel_circumference) / ticks_per_revolution;
+    float right_distance = (right_ticks * wheel_circumference) / ticks_per_revolution;
+    float average_distance = (left_distance + right_distance) / 2.0;
+
+    snprintf(buf, 33, "L%.2f R%.2f D%.2f", left_distance, right_distance, average_distance);
+    lf_set(display.line2, buf);
+  =}
+}

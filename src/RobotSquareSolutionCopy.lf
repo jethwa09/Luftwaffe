@@ -1,0 +1,149 @@
+target C {
+    platform: {
+        name: "rp2040",
+        board: "pololu_3pi_2040_robot"
+    },
+    single-threaded: true,
+}
+
+import GyroAngle from "lib/IMU.lf"
+import Motors from "lib/Motors.lf"
+import Display from "lib/Display.lf"
+import Encoders from "lib/Encoders.lf"
+
+
+preamble {=
+    // float pi = 3.14159;
+    // float d = 3.175; // Diameter of the wheels
+=}
+
+reactor Robot {
+    input drive: string      // Toggle mode.
+    output notify: string
+
+    motors = new Motors()
+
+    reaction(startup) -> notify {=
+        lf_set(notify, "INIT");
+    =}
+
+    initial mode STOPPED {
+        reaction(drive) -> reset(DRIVING), notify, motors.left_power, motors.right_power {=
+        if (drive->value == "DRIVING") {
+                lf_set_mode(DRIVING);
+                lf_set(notify, "DRIVING");
+                lf_set(motors.right_power, 0.1f); 
+                lf_set(motors.left_power, 0.106f);
+            }
+        =}
+    }
+
+    mode DRIVING {
+        reaction(drive) -> reset(TURNING), notify, motors.left_power, motors.right_power {=
+            if (drive->value == "TURNING") {
+                lf_set_mode(TURNING);
+                lf_set(notify, "TURNING");
+                lf_set(motors.left_power, 0.0f);
+                lf_set(motors.right_power, 0.1f);
+            }
+        =}
+    }
+
+    mode TURNING {
+        reaction(drive) -> reset(DRIVING), notify, motors.left_power, motors.right_power {=
+            if (drive->value == "DRIVING") {
+                lf_set_mode(DRIVING);
+                lf_set(notify, "DRIVING");
+                lf_set(motors.right_power, 0.1f);
+                lf_set(motors.left_power, 0.106f);
+            }  
+        =}
+    }
+}
+
+main reactor {
+    gyro_angle = new GyroAngle()
+    robot = new Robot()
+    display = new Display()
+    encoder = new Encoders()
+    logical action start_turn
+    logical action start_drive
+
+    state drive_mode: string = "INIT"
+    state start_left: int
+    state start_angle: int
+
+    timer check_mode(0, 10 ms)
+    timer t(0, 100 ms)
+
+    preamble {=
+        float calculate_wheel_distance(int32_t start, int32_t current) {
+            int32_t delta = abs(start - current); // Delta is change in degrees
+            printf("delta: %f\n", start - current);
+            return (delta / 360) * 3.14159 * 3.175; // Wheel diameter of 3.175 mm
+        }
+
+        float calculate_angle_delta(float start, float current) {
+            return abs(current - start);
+        }
+    =}
+
+    reaction(t) -> gyro_angle.trigger, encoder.trigger {=
+        lf_set(gyro_angle.trigger, true);
+        lf_set(encoder.trigger, true);
+    =}
+
+    reaction (startup) -> start_drive {=
+        lf_schedule(start_drive, MSEC(1000));
+    =}
+
+    reaction(start_turn) gyro_angle.z -> robot.drive, start_drive {=
+        lf_set(robot.drive, "TURNING");
+        self->drive_mode = "TURNING";
+        self->start_angle = gyro_angle.z->value;
+    =}
+
+    reaction(start_drive) encoder.left -> robot.drive, start_turn {=
+        lf_set(robot.drive, "DRIVING");
+        self->drive_mode = "DRIVING";
+        self->start_left = encoder.left->value;
+    =}
+
+    reaction(check_mode, encoder.left, gyro_angle.z) -> start_drive, start_turn {=
+        if (self->drive_mode == "DRIVING") {
+            printf("start: %d\n", self->start_left);
+            printf("current: %d\n", encoder.left->value);
+            if (calculate_wheel_distance(self->start_left, encoder.left->value) >= 100) {
+                lf_schedule(start_turn, 0);
+            }
+        }  else if (self->drive_mode == "TURNING") {
+            if (calculate_angle_delta(self->start_angle, gyro_angle.z->value) >= 90) {
+                lf_schedule(start_drive, 0);
+            }
+        }
+    =}
+
+    reaction(gyro_angle.z)  -> display.line0 {=
+        static char buf[17];
+        snprintf(buf, 17, "z: %.1f", gyro_angle.z->value);
+        lf_set(display.line0, buf);
+    =}
+
+    reaction(gyro_angle.x)  -> display.line1 {=
+        static char buf[17];
+        snprintf(buf, 17, "x: %.1f", gyro_angle.x->value);
+        lf_set(display.line1, buf);
+    =}
+
+    reaction(check_mode)  -> display.line2 {=
+        static char buf[17];
+        snprintf(buf, 17, "mode: %s", self->drive_mode);
+        lf_set(display.line2, buf);
+    =}
+
+    reaction(encoder.left) -> display.line3 {=
+        static char buf[17];
+        snprintf(buf, 17, "left: %d", encoder.left->value);
+        lf_set(display.line3, buf);
+    =}
+}

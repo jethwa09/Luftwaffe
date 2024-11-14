@@ -1,149 +1,200 @@
+/**
+ * Robot driving in a square pattern using encoder and gyro feedback.
+ */
 target C {
-    platform: {
-        name: "rp2040",
-        board: "pololu_3pi_2040_robot"
-    },
-    single-threaded: true,
+  platform: {
+    name: "rp2040",
+    board: "pololu_3pi_2040_robot"
+  },
+  single-threaded: true
 }
 
-import GyroAngle from "lib/IMU.lf"
-import Motors from "lib/Motors.lf"
+import Bump from "lib/Bump.lf"
 import Display from "lib/Display.lf"
+import Gyro from "lib/IMU.lf"
 import Encoders from "lib/Encoders.lf"
+import Motors from "lib/Motors.lf"
 
-
-preamble {=
-    // float pi = 3.14159;
-    // float d = 3.175; // Diameter of the wheels
-=}
 
 reactor Robot {
-    input drive: string      // Toggle mode.
+    input drive: bool
+    input encoder_left: int
+    input encoder_right: int
+    input gyro_z: float
     output notify: string
-
-    motors = new Motors()
-
-    reaction(startup) -> notify {=
-        lf_set(notify, "INIT");
+    output left_power: float
+    output right_power: float
+  
+    state step: int = 0
+    state target_distance: float = 50.0
+    state target_angle: float = 90.0
+    state current_angle: float = 0.0
+    state initial_left: int = 0
+    state initial_right: int = 0
+  
+    preamble {=
+      #include <math.h>
+      #ifndef M_PI
+      #define M_PI 3.14159265358979323846
+      #endif
     =}
-
+  
+    reaction(startup) -> notify {=
+      lf_set(notify, "INIT");
+    =}
+  
     initial mode STOPPED {
-        reaction(drive) -> reset(DRIVING), notify, motors.left_power, motors.right_power {=
-        if (drive->value == "DRIVING") {
-                lf_set_mode(DRIVING);
-                lf_set(notify, "DRIVING");
-                lf_set(motors.right_power, 0.1f); 
-                lf_set(motors.left_power, 0.106f);
-            }
-        =}
+      reaction(drive) -> reset(DRIVING), notify, left_power, right_power {=
+        if (drive->value) {
+          lf_set_mode(DRIVING);
+          lf_set(notify, "DRIVING");
+          self->initial_left = self->_lf_encoder_left->value;
+          self->initial_right = self->_lf_encoder_right->value;
+          lf_set(left_power, 0.1f);
+          lf_set(right_power, 0.1f);
+        }
+      =}
     }
-
+  
     mode DRIVING {
-        reaction(drive) -> reset(TURNING), notify, motors.left_power, motors.right_power {=
-            if (drive->value == "TURNING") {
-                lf_set_mode(TURNING);
-                lf_set(notify, "TURNING");
-                lf_set(motors.left_power, 0.0f);
-                lf_set(motors.right_power, 0.1f);
-            }
-        =}
+      reaction(encoder_left, encoder_right) -> notify, left_power, right_power, reset(TURNING) {=
+        const float wheel_diameter = 3.175; // cm
+        const float wheel_circumference = M_PI * wheel_diameter;
+        const int ticks_per_revolution = 360;
+  
+        int left_ticks = self->_lf_encoder_left->value - self->initial_left;
+        int right_ticks = self->_lf_encoder_right->value - self->initial_right;
+  
+        float left_distance = (left_ticks * wheel_circumference) / ticks_per_revolution;
+        float right_distance = (right_ticks * wheel_circumference) / ticks_per_revolution;
+        float average_distance = (left_distance + right_distance) / 2.0;
+  
+        if (average_distance >= self->target_distance) {
+          lf_set(left_power, 0.0f);
+          lf_set(right_power, 0.0f);
+          lf_set_mode(TURNING);
+          lf_set(notify, "TURNING");
+          self->current_angle = 0.0;
+        } else {
+          lf_set(left_power, 0.1f);
+          lf_set(right_power, 0.1f);
+        }
+      =}
+  
+      reaction(drive) -> reset(STOPPED), notify, left_power, right_power {=
+        if (!drive->value) {
+          lf_set_mode(STOPPED);
+          lf_set(notify, "STOPPED");
+          lf_set(left_power, 0.0f);
+          lf_set(right_power, 0.0f);
+        }
+      =}
     }
-
+  
     mode TURNING {
-        reaction(drive) -> reset(DRIVING), notify, motors.left_power, motors.right_power {=
-            if (drive->value == "DRIVING") {
-                lf_set_mode(DRIVING);
-                lf_set(notify, "DRIVING");
-                lf_set(motors.right_power, 0.1f);
-                lf_set(motors.left_power, 0.106f);
-            }  
-        =}
+      reaction(gyro_z) -> notify, left_power, right_power, reset(DRIVING) {=
+        self->current_angle += self->_lf_gyro_z->value * 0.1;
+  
+        if (fabs(self->current_angle) >= self->target_angle) {
+          lf_set(left_power, 0.0f);
+          lf_set(right_power, 0.0f);
+          self->step = (self->step + 1) % 4;
+          if (self->step == 0) {
+            lf_set(notify, "SQUARE COMPLETE");
+          } else {
+            lf_set(notify, "DRIVING");
+          }
+          lf_set_mode(DRIVING);
+          self->initial_left = self->_lf_encoder_left->value;
+          self->initial_right = self->_lf_encoder_right->value;
+        } else {
+          lf_set(left_power, 0.1f);
+          lf_set(right_power, -0.1f);
+        }
+      =}
     }
-}
+  }
+  
+
 
 main reactor {
-    gyro_angle = new GyroAngle()
-    robot = new Robot()
-    display = new Display()
+    bump = new Bump()
+    disp = new Display()
+    gyro = new Gyro()
     encoder = new Encoders()
-    logical action start_turn
-    logical action start_drive
-
-    state drive_mode: string = "INIT"
-    state start_left: int
-    state start_angle: int
-
-    timer check_mode(0, 10 ms)
+    robot = new Robot()
+    motors = new Motors()
+    logical action clear
+  
     timer t(0, 100 ms)
-
-    preamble {=
-        float calculate_wheel_distance(int32_t start, int32_t current) {
-            int32_t delta = abs(start - current); // Delta is change in degrees
-            printf("delta: %f\n", start - current);
-            return (delta / 360) * 3.14159 * 3.175; // Wheel diameter of 3.175 mm
-        }
-
-        float calculate_angle_delta(float start, float current) {
-            return abs(current - start);
-        }
+    state drive: bool = true
+    //robot.notify -> disp.line0
+    robot.left_power -> motors.left_power
+    robot.right_power -> motors.right_power
+  
+    reaction(t) -> robot.drive, gyro.trigger, encoder.trigger {=
+      lf_set(robot.drive, self->drive);
+      lf_set(gyro.trigger, true);
+      lf_set(encoder.trigger, true);
     =}
-
-    reaction(t) -> gyro_angle.trigger, encoder.trigger {=
-        lf_set(gyro_angle.trigger, true);
-        lf_set(encoder.trigger, true);
+  
+    reaction(encoder.left) -> robot.encoder_left {=
+      lf_set(robot.encoder_left, encoder.left->value);
     =}
-
-    reaction (startup) -> start_drive {=
-        lf_schedule(start_drive, MSEC(1000));
+  
+    reaction(encoder.right) -> robot.encoder_right {=
+      lf_set(robot.encoder_right, encoder.right->value);
     =}
-
-    reaction(start_turn) gyro_angle.z -> robot.drive, start_drive {=
-        lf_set(robot.drive, "TURNING");
-        self->drive_mode = "TURNING";
-        self->start_angle = gyro_angle.z->value;
+  
+    reaction(gyro.z) -> robot.gyro_z {=
+      lf_set(robot.gyro_z, gyro.z->value);
     =}
-
-    reaction(start_drive) encoder.left -> robot.drive, start_turn {=
-        lf_set(robot.drive, "DRIVING");
-        self->drive_mode = "DRIVING";
-        self->start_left = encoder.left->value;
+    reaction(robot.notify) -> disp.line0 {=
+        lf_set(disp.line0, robot.notify->value);
+      =}
+    reaction(robot.notify, bump.left, bump.right) -> disp.line0, disp.line1, clear {=
+      lf_set(disp.line0, robot.notify->value);
+      
+      static char buf[33];
+      if (bump.left->value && bump.right->value) {
+          snprintf(buf, 33, "Both Bumped!");
+      } else if (bump.left->value) {
+          snprintf(buf, 33, "Left Bumped!");
+      } else if (bump.right->value) {
+          snprintf(buf, 33, "Right Bumped!");
+      } else {
+          buf[0] = '\0';  // Empty string if neither bumper is pressed
+      }
+      lf_set(disp.line1, buf);
+      if (buf[0] != '\0') {
+          lf_schedule(clear, SEC(3));
+      }
     =}
-
-    reaction(check_mode, encoder.left, gyro_angle.z) -> start_drive, start_turn {=
-        if (self->drive_mode == "DRIVING") {
-            printf("start: %d\n", self->start_left);
-            printf("current: %d\n", encoder.left->value);
-            if (calculate_wheel_distance(self->start_left, encoder.left->value) >= 100) {
-                lf_schedule(start_turn, 0);
-            }
-        }  else if (self->drive_mode == "TURNING") {
-            if (calculate_angle_delta(self->start_angle, gyro_angle.z->value) >= 90) {
-                lf_schedule(start_drive, 0);
-            }
-        }
+  
+    reaction(encoder.left, encoder.right) -> disp.line2 {=
+      static char buf[33];
+      const float wheel_diameter = 3.175; // cm
+      const float wheel_circumference = M_PI * wheel_diameter;
+      const int ticks_per_revolution = 360; // Assuming 360 ticks per revolution
+      int left_ticks = encoder.left->value;
+      int right_ticks = encoder.right->value;
+  
+      float left_distance = (left_ticks * wheel_circumference) / ticks_per_revolution;
+      float right_distance = (right_ticks * wheel_circumference) / ticks_per_revolution;
+      float average_distance = (left_distance + right_distance) / 2.0;
+  
+      snprintf(buf, 33, "L%d R%d D%.2f", left_ticks, right_ticks, average_distance);
+      lf_set(disp.line2, buf);
     =}
-
-    reaction(gyro_angle.z)  -> display.line0 {=
-        static char buf[17];
-        snprintf(buf, 17, "z: %.1f", gyro_angle.z->value);
-        lf_set(display.line0, buf);
+  
+    reaction(gyro.x, gyro.y, gyro.z) -> disp.line3 {=
+      static char buf[33];
+      snprintf(buf, 33, "x%.1f y%.1f z%.1f", gyro.x->value, gyro.y->value, gyro.z->value);
+      lf_set(disp.line3, buf);
     =}
-
-    reaction(gyro_angle.x)  -> display.line1 {=
-        static char buf[17];
-        snprintf(buf, 17, "x: %.1f", gyro_angle.x->value);
-        lf_set(display.line1, buf);
+  
+    reaction(clear) -> disp.line1 {=
+      lf_set(disp.line1, "");
     =}
-
-    reaction(check_mode)  -> display.line2 {=
-        static char buf[17];
-        snprintf(buf, 17, "mode: %s", self->drive_mode);
-        lf_set(display.line2, buf);
-    =}
-
-    reaction(encoder.left) -> display.line3 {=
-        static char buf[17];
-        snprintf(buf, 17, "left: %d", encoder.left->value);
-        lf_set(display.line3, buf);
-    =}
-}
+  }
+  

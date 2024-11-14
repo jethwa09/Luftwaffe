@@ -1,0 +1,88 @@
+target C {
+    platform: {
+        name: "rp2040",
+        board: "pololu_3pi_2040_robot"
+    },
+    single-threaded: true
+}
+
+import Line from "lib/Line.lf"
+import Display from "lib/Display.lf"
+
+main reactor(calibration_time: time = 10 s) {
+    line = new Line()
+    disp = new Display()
+
+    timer t(0, 100 ms)
+    timer seconds(0, 1 s)  // Timer used to display seconds.
+    timer end_calibration(calibration_time)
+    state count: int = 0
+
+    preamble {=
+        float sensor_threshold = 900;
+        bool check_sensor(float sensor_val) {
+            if (sensor_val > sensor_threshold) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+    =}
+
+    reaction(startup) -> disp.line0, disp.line1, disp.line2 {=
+        lf_set(disp.line0, "CALIBRATING");
+        lf_set(disp.line1, "Roll robot over");
+        lf_set(disp.line2, "light and dark.");
+    =}
+
+    reaction(seconds) -> disp.line3 {=
+        static char buf[17];
+        snprintf(buf, 17, "time:%8d s", self->count++);
+        lf_set(disp.line3, buf);
+    =}
+
+    reaction(end_calibration) -> line.calibrate {=
+        lf_set(line.calibrate, false);
+    =}
+
+    reaction(t) -> line.trigger {=
+        lf_set(line.trigger, true);
+    =}
+
+
+    reaction(line.reflect) -> disp.line0, disp.line1, disp.line2 {=
+        static char buf0[17];
+        static char buf1[17];
+        static char buf2[17];
+        bool left_sensed;
+        bool right_sensed;
+        bool center_sensed;
+
+        left_sensed = check_sensor(line.reflect->value[0]);
+        right_sensed = check_sensor(line.reflect->value[4]);
+        center_sensed = check_sensor(line.reflect->value[1]) || check_sensor(line.reflect->value[2]) || 
+                        check_sensor(line.reflect->value[3]);
+
+        if (left_sensed) {
+            snprintf(buf0, 17, "Left: %4d", line.reflect->value[0]);
+        } else {
+            snprintf(buf0, 17, "");
+        }
+
+        if (center_sensed) {
+            snprintf(buf1, 17, "Center: %4d", ((line.reflect->value[1] + line.reflect->value[2] + line.reflect->value[3]) / 3));
+        } else {
+            snprintf(buf1, 17, "");
+        }
+
+        if (right_sensed) {
+            snprintf(buf2, 17, "Right: %4d", line.reflect->value[4]);
+        } else {
+            snprintf(buf2, 17, "");
+        }
+
+        lf_set(disp.line0, buf0);
+        lf_set(disp.line1, buf1);
+        lf_set(disp.line2, buf2);
+    =}
+}
