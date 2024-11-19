@@ -1,0 +1,307 @@
+target C {
+    platform: {
+      name: "rp2040",
+      board: "pololu_3pi_2040_robot"
+    },
+    single-threaded: true
+  }
+  
+import Line from "lib/Line.lf"
+import Display from "lib/Display.lf"
+import Gyro from "lib/IMU.lf"
+import Encoders from "lib/Encoders.lf"
+import Motors from "lib/Motors.lf"
+
+reactor Robot {
+    input drive: bool
+    input encoder_left: int
+    input encoder_right: int
+    input gyro_z: float
+    input line_sensed: int
+    output notify: string
+    output left_power: float
+    output right_power: float
+    state step: int = 0
+    state target_angle: float = 30.0
+    state current_angle: float = 0.0
+    state initial_left: int = 0
+    state initial_right: int = 0
+    state recovery_side: int = 0 // 0 - line sensed from the left, 1 - line sensed from the right
+
+    logical action reverse
+    logical action straighten
+    logical action start_turn
+    logical action resume_drive
+
+    preamble {=
+        #include <math.h>
+        #ifndef M_PI
+        #define M_PI 3.14159265358979323846
+        #endif
+        #ifndef WHEEL_DIAMETER
+        const float WHEEL_DIAMETER = 3.175; // cm
+        #endif
+        #ifndef WHEEL_CIRCUMFERENCE
+        const float WHEEL_CIRCUMFERENCE = M_PI * WHEEL_DIAMETER;
+        #endif
+        #ifndef TICKS_PER_REVOLUTION
+        const int TICKS_PER_REVOLUTION = 360;
+        #endif
+        #ifndef FORWARD_SPEED
+        const float FORWARD_SPEED = 0.1f;
+        #endif
+        #ifndef TURN_SPEED_STRONG
+        const float TURN_SPEED_STRONG = 0.1f;
+        #endif
+        #ifndef TURN_SPEED_WEAK
+        const float TURN_SPEED_WEAK = 0.05f;
+        #endif
+    =}
+
+    reaction(startup) -> notify {=
+        lf_set(notify, "INIT");
+    =}
+
+    initial mode STOPPED {
+        reaction(drive) -> reset(DRIVING), notify, left_power, right_power {=
+            if (drive->value) {
+                self->initial_left = self->_lf_encoder_left->value;
+                self->initial_right = self->_lf_encoder_right->value;
+                lf_set(left_power, FORWARD_SPEED);
+                lf_set(right_power, FORWARD_SPEED);
+                lf_set_mode(DRIVING);
+                lf_set(notify, "DRIVING");
+            }
+        =}
+    }
+
+    mode DRIVING {
+        reaction(line_sensed) -> reset(REVERSING), notify, left_power, right_power, reverse {=
+            if (line_sensed->value) {
+                switch (line_sensed->value) {
+                    case 1: // Line sensed on the left
+                        self->recovery_side = 1;
+                        lf_set(notify, "LEFT");
+                        break;
+                    case 2: // Line sensed in the center, trickier case
+                        break;
+                    case 3: // Line sensed on the right
+                        lf_set(notify, "RIGHT");
+                        self->recovery_side = 2;
+                        break;
+                }
+                self->initial_left = self->_lf_encoder_left->value;
+                self->initial_right = self->_lf_encoder_right->value;
+                lf_set(left_power, 0.0f);
+                lf_set(right_power, 0.0f);
+                lf_set(notify, "REVERSE");
+                lf_set_mode(REVERSING);
+                lf_schedule(reverse, 0);
+                
+            }
+        =}
+
+        reaction(encoder_left, encoder_right) -> left_power, right_power {=
+            lf_set(left_power, FORWARD_SPEED);
+            lf_set(right_power, FORWARD_SPEED);
+        =}
+
+        reaction(drive) -> reset(STOPPED), notify, left_power, right_power {=
+            if (!drive->value) {
+                lf_set(notify, "STOPPED");
+                lf_set(left_power, 0.0f);
+                lf_set(right_power, 0.0f);
+                lf_set_mode(STOPPED);
+            }
+        =}
+    }
+
+    mode REVERSING {
+        reaction(reverse) -> notify, left_power, right_power, start_turn {=
+            lf_set(notify, "BACKING");
+            lf_set(left_power, -0.1f);
+            lf_set(right_power, -0.1f);
+            lf_schedule(start_turn, MSEC(1000));
+        =}
+
+        reaction(start_turn) -> left_power, right_power, start_turn, reset(RECOVERY), notify {=
+            lf_set(notify, "STARTING TURN");
+            lf_set(left_power, 0.0f);
+            lf_set(right_power, 0.0f);
+            lf_set_mode(RECOVERY);
+            lf_schedule(start_turn, 0);
+        =}
+    }
+
+    mode RECOVERY {
+        reaction(start_turn) -> left_power, right_power, notify {=
+            lf_set(notify, "TURNING");
+            if (self->recovery_side) {
+                switch (self->recovery_side) {
+                    case 1: // correct away from the left side
+                        lf_set(left_power, TURN_SPEED_STRONG);
+                        lf_set(right_power, TURN_SPEED_WEAK);
+                        break;
+                    case 2: // correct away from the right side
+                        lf_set(left_power, TURN_SPEED_WEAK);
+                        lf_set(right_power, TURN_SPEED_STRONG);
+                        break;
+                }
+            }
+        =}
+
+        reaction(gyro_z) -> notify, left_power, right_power, straighten, reset(DRIVING) {=
+            self->current_angle += self->_lf_gyro_z->value * 0.1;
+
+            if (fabs(self->current_angle) >= self->target_angle){
+                self->current_angle = 0.0;
+                lf_set(left_power, 0.0f);
+                lf_set(right_power, 0.0f);
+                lf_set(notify, "DRIVING");
+                lf_set_mode(DRIVING);
+            } else {
+                switch (self->recovery_side) {
+                    case 1: // correct away from the left side
+                        lf_set(left_power, TURN_SPEED_STRONG);
+                        lf_set(right_power, TURN_SPEED_WEAK);
+                        break;
+                    case 2: // correct away from the right side
+                        lf_set(left_power, TURN_SPEED_WEAK);
+                        lf_set(right_power, TURN_SPEED_STRONG);
+                        break;
+                }
+            }
+        =}
+    }
+
+    mode STRAIGHTEN {
+        reaction(straighten) -> left_power, right_power, resume_drive, reset(DRIVING) {=
+            switch (self->recovery_side) {
+                case 1: // Left correction requires straightening out to the right
+                    lf_set(left_power, TURN_SPEED_WEAK);
+                    lf_set(right_power, TURN_SPEED_STRONG);
+                    break;
+                case 2: // Right correction requires straightening out to the left
+                    lf_set(left_power, TURN_SPEED_STRONG);
+                    lf_set(right_power, TURN_SPEED_WEAK);
+                    break;
+            }
+            lf_schedule(resume_drive, MSEC(1000));
+            self->recovery_side = 0;
+        =}
+
+        reaction(resume_drive) -> left_power, right_power, reset(DRIVING) {=
+            lf_set(left_power, FORWARD_SPEED);
+            lf_set(right_power, FORWARD_SPEED);
+            lf_set_mode(DRIVING);
+        =}
+    }
+}
+
+
+main reactor {
+    disp = new Display()
+    gyro = new Gyro()
+    encoder = new Encoders()
+    robot = new Robot()
+    motors = new Motors()
+    line = new Line()
+    logical action clear
+
+    timer t(0, 100 ms)
+    state drive: bool = false
+    timer seconds(0, 1 s)  // Timer used to display seconds.
+    timer end_calibration(10 s)
+    state count: int = 0
+
+    robot.left_power -> motors.left_power
+    robot.right_power -> motors.right_power
+
+    preamble {=
+        float sensor_threshold = 900;
+        bool check_sensor(float sensor_val) {
+            if (sensor_val > sensor_threshold) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+    =}
+
+    reaction(startup) -> disp.line0, disp.line1, disp.line2 {=
+        lf_set(disp.line0, "CALIBRATING");
+        lf_set(disp.line1, "Roll robot over");
+        lf_set(disp.line2, "light and dark.");
+    =}
+
+    reaction(seconds) -> disp.line3 {=
+        static char buf[17];
+        snprintf(buf, 17, "time:%8d s", self->count++);
+        lf_set(disp.line3, buf);
+    =}
+
+    reaction(end_calibration) -> line.calibrate {=
+        lf_set(line.calibrate, false);
+        self->drive = true;
+    =}
+
+    reaction(t) -> robot.drive, gyro.trigger, encoder.trigger, line.trigger {=
+        lf_set(robot.drive, self->drive);
+        lf_set(gyro.trigger, true);
+        lf_set(encoder.trigger, true);
+        lf_set(line.trigger, true);
+    =}
+
+    reaction(encoder.left) -> robot.encoder_left {=
+        lf_set(robot.encoder_left, encoder.left->value);
+    =}
+
+    reaction(encoder.right) -> robot.encoder_right {=
+        lf_set(robot.encoder_right, encoder.right->value);
+    =}
+
+    reaction(gyro.z) -> robot.gyro_z {=
+        lf_set(robot.gyro_z, gyro.z->value);
+    =}
+
+    reaction(line.reflect) ->  robot.line_sensed, disp.line1 {=
+        if (check_sensor(line.reflect->value[0])) {
+            lf_set(robot.line_sensed, 1); // left sensor sensed
+        } else if(check_sensor(line.reflect->value[4])) {
+            lf_set(robot.line_sensed, 3); // right sensor sensed
+        } else if (check_sensor(line.reflect->value[1]) || check_sensor(line.reflect->value[2]) || check_sensor(line.reflect->value[3])) {
+            lf_set(robot.line_sensed, 2); // center sensor sensed
+        }
+    =}
+
+    reaction(robot.notify) -> disp.line0 {=
+        lf_set(disp.line0, robot.notify->value);
+    =}
+
+    reaction(encoder.left, encoder.right) -> disp.line2 {=
+        static char buf[33];
+        const float wheel_diameter = 3.175; // cm
+        const float wheel_circumference = M_PI * wheel_diameter;
+        const int ticks_per_revolution = 360; // Assuming 360 ticks per revolution
+        int left_ticks = encoder.left->value;
+        int right_ticks = encoder.right->value;
+
+        float left_distance = (left_ticks * wheel_circumference) / ticks_per_revolution;
+        float right_distance = (right_ticks * wheel_circumference) / ticks_per_revolution;
+        float average_distance = (left_distance + right_distance) / 2.0;
+
+        snprintf(buf, 33, "L%d R%d D%.2f", left_ticks, right_ticks, average_distance);
+        lf_set(disp.line2, buf);
+    =}
+
+    reaction(gyro.x, gyro.y, gyro.z) -> disp.line3 {=
+        static char buf[33];
+        snprintf(buf, 33, "x%.1f y%.1f z%.1f", gyro.x->value, gyro.y->value, gyro.z->value);
+        lf_set(disp.line3, buf);
+    =}
+
+    reaction(clear) -> disp.line1 {=
+        lf_set(disp.line1, "");
+    =}
+}
+

@@ -79,23 +79,23 @@ target C {
             float average_distance = (left_distance + right_distance) / 2.0;
 
             if (average_distance >= self->target_distance) {
-            lf_set(left_power, 0.0f);
-            lf_set(right_power, 0.0f);
-            lf_set_mode(TURNING);
-            lf_set(notify, "TURNING");
-            self->current_angle = 0.0;
-            } else {
-            lf_set(left_power, 0.1f);
-            lf_set(right_power, 0.1f);
+                lf_set(left_power, 0.0f);
+                lf_set(right_power, 0.0f);
+                lf_set(notify, "TURNING");
+                self->current_angle = 0.0;
+                lf_set_mode(TURNING);
+              } else {
+                lf_set(left_power, 0.1f);
+                lf_set(right_power, 0.1f);
             }
         =}
   
         reaction(drive) -> reset(STOPPED), notify, left_power, right_power {=
           if (!drive->value) {
-            lf_set_mode(STOPPED);
             lf_set(notify, "STOPPED");
             lf_set(left_power, 0.0f);
             lf_set(right_power, 0.0f);
+            lf_set_mode(STOPPED);
           }
         =}
       }
