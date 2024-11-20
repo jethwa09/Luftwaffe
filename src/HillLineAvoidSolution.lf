@@ -123,8 +123,8 @@ reactor Robot {
     mode REVERSING {
         reaction(reverse) -> notify, left_power, right_power, start_turn {=
             lf_set(notify, "BACKING");
-            lf_set(left_power, -0.05f);
-            lf_set(right_power, -0.05f);
+            lf_set(left_power, -0.1f);
+            lf_set(right_power, -0.1f);
             // lf_schedule(start_turn, MSEC(1500));
         =}
 
@@ -132,17 +132,16 @@ reactor Robot {
             int left_ticks = self->_lf_encoder_left->value - self->initial_left;
             int right_ticks = self->_lf_encoder_right->value - self->initial_right;
     
-            float left_distance = (left_ticks * wheel_circumference) / ticks_per_revolution;
-            float right_distance = (right_ticks * wheel_circumference) / ticks_per_revolution;
+            float left_distance = (left_ticks * WHEEL_CIRCUMFERENCE) / TICKS_PER_REVOLUTION;
+            float right_distance = (right_ticks * WHEEL_CIRCUMFERENCE) / TICKS_PER_REVOLUTION;
             float average_distance = (left_distance + right_distance) / 2.0;
 
             if (fabs(average_distance >= 20.0)) {
                 lf_schedule(start_turn, MSEC(200));
             } else {
-                lf_set(left_power, -0.05f);
-                lf_set(right_power, -0.05f);
+                lf_set(left_power, -0.1f);
+                lf_set(right_power, -0.1f);
             }
-            
         =}
 
         reaction(start_turn) -> left_power, right_power, start_turn, reset(RECOVERY), notify {=
