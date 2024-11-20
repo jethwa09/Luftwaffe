@@ -48,13 +48,13 @@ reactor Robot {
         const int TICKS_PER_REVOLUTION = 360;
         #endif
         #ifndef FORWARD_SPEED
-        const float FORWARD_SPEED = 0.1f;
+        const float FORWARD_SPEED = 0.2f;
         #endif
         #ifndef TURN_SPEED_STRONG
-        const float TURN_SPEED_STRONG = 0.1f;
+        const float TURN_SPEED_STRONG = 0.2f;
         #endif
         #ifndef TURN_SPEED_WEAK
-        const float TURN_SPEED_WEAK = 0.05f;
+        const float TURN_SPEED_WEAK = 0.1f;
         #endif
     =}
 
@@ -83,7 +83,8 @@ reactor Robot {
                         self->recovery_side = 1;
                         lf_set(notify, "LEFT");
                         break;
-                    case 2: // Line sensed in the center, trickier case
+                    case 2: // Line sensed in the center, cliff sensed 
+
                         break;
                     case 3: // Line sensed on the right
                         lf_set(notify, "RIGHT");
@@ -119,8 +120,8 @@ reactor Robot {
     mode REVERSING {
         reaction(reverse) -> notify, left_power, right_power, start_turn {=
             lf_set(notify, "BACKING");
-            lf_set(left_power, -0.1f);
-            lf_set(right_power, -0.1f);
+            lf_set(left_power, -0.05f);
+            lf_set(right_power, -0.05f);
             lf_schedule(start_turn, MSEC(1000));
         =}
 

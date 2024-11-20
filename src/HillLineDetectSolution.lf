@@ -70,7 +70,7 @@ main reactor(calibration_time: time = 10 s) {
         }
 
         if (center_sensed) {
-            snprintf(buf1, 17, "Center: %4d", ((line.reflect->value[1] + line.reflect->value[2] + line.reflect->value[3]) / 3));
+            snprintf(buf1, 17, "Cliff: %4d", ((line.reflect->value[1] + line.reflect->value[2] + line.reflect->value[3]) / 3));
         } else {
             snprintf(buf1, 17, "");
         }
