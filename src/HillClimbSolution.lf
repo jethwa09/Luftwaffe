@@ -20,6 +20,7 @@ reactor Robot {
     input encoder_right: int
     input gyro_z: float
     input line_sensed: int
+    input pitch: float
     output notify: string
     output left_speed: float
     output right_speed: float
@@ -123,7 +124,12 @@ reactor Robot {
             }
         =}
 
-        reaction()
+        reaction(pitch) -> reset(REVERSING), start_turn {=
+            if (pitch <= 1.0) {
+                lf_schedule(start_turn, MSEC(200));
+                lf_set_mode(REVERSING);
+            }
+        =}
     }
 
     mode REVERSING {
@@ -266,6 +272,10 @@ main reactor {
                 return false;
             }
         }
+
+        float calculate_tilt(float a1, float a2, float a3) {
+            return (atan(a1 / sqrt(a2*a2 + a3*a3)) * 180) / M_PI; // for calculating pitch
+        }
     =}
 
     reaction(startup) -> disp.line0, disp.line1, disp.line2 {=
@@ -303,6 +313,11 @@ main reactor {
 
     reaction(gyro.z) -> robot.gyro_z {=
         lf_set(robot.gyro_z, gyro.z->value);
+    =}
+
+    reaction(accel.x, accel.y, accel.z) -> robot.pitch {=
+        float pitch = calculate_tilt(accel.x->value, accel.y->value, accel.z->value);
+        lf_set(robot.pitch, pitch);
     =}
 
     reaction(line.reflect) ->  robot.line_sensed, disp.line1 {=
