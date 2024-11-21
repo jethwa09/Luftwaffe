@@ -199,6 +199,10 @@ reactor Robot {
                 lf_set_mode(DRIVING);
             } else {
                 switch (self->recovery_side) {
+                    case 0: // Reached top of ramp
+                        lf_set(left_speed, TURN_SPEED_STRONG);
+                        lf_set(right_speed, -TURN_SPEED_STRONG);
+                        break;
                     case 1: // correct away from the left side
                         lf_set(left_speed, TURN_SPEED_STRONG);
                         lf_set(right_speed, TURN_SPEED_WEAK);
