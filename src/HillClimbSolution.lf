@@ -9,8 +9,10 @@ target C {
 import Line from "lib/Line.lf"
 import Display from "lib/Display.lf"
 import Gyro from "lib/IMU.lf"
+import Accelerometer from "lib/IMU.lf"
 import Encoders from "lib/Encoders.lf"
-import Motors from "lib/Motors.lf"
+// import Motors from "lib/Motors.lf"
+import MotorsWithFeedback from "lib/MotorsWithFeedback.lf"
 
 reactor Robot {
     input drive: bool
@@ -19,8 +21,8 @@ reactor Robot {
     input gyro_z: float
     input line_sensed: int
     output notify: string
-    output left_power: float
-    output right_power: float
+    output left_speed: float
+    output right_speed: float
     state step: int = 0
     state target_angle: float = 30.0
     state current_angle: float = 0.0
@@ -67,10 +69,10 @@ reactor Robot {
     =}
 
     initial mode STOPPED {
-        reaction(drive) -> reset(DRIVING), notify, left_power, right_power {=
+        reaction(drive) -> reset(DRIVING), notify, left_speed, right_speed {=
             if (drive->value) {
-                lf_set(left_power, FORWARD_SPEED);
-                lf_set(right_power, FORWARD_SPEED);
+                lf_set(left_speed, FORWARD_SPEED);
+                lf_set(right_speed, FORWARD_SPEED);
                 lf_set_mode(DRIVING);
                 lf_set(notify, "DRIVING");
             }
@@ -78,7 +80,7 @@ reactor Robot {
     }
 
     mode DRIVING {
-        reaction(line_sensed) -> reset(REVERSING), notify, left_power, right_power, reverse {=
+        reaction(line_sensed) -> reset(REVERSING), notify, left_speed, right_speed, reverse {=
             if (line_sensed->value) {
                 switch (line_sensed->value) {
                     case 1: // Line sensed on the left
@@ -97,8 +99,8 @@ reactor Robot {
                         self->target_angle = 30.0;
                         break;
                 }
-                lf_set(left_power, 0.0f);
-                lf_set(right_power, 0.0f);
+                lf_set(left_speed, 0.0f);
+                lf_set(right_speed, 0.0f);
                 self->initial_left = self->_lf_encoder_left->value;
                 self->initial_right = self->_lf_encoder_right->value;
                 lf_set(notify, "REVERSING");
@@ -107,30 +109,32 @@ reactor Robot {
             }
         =}
 
-        reaction(encoder_left, encoder_right) -> left_power, right_power {=
-            lf_set(left_power, FORWARD_SPEED);
-            lf_set(right_power, FORWARD_SPEED);
+        reaction(encoder_left, encoder_right) -> left_speed, right_speed {=
+            lf_set(left_speed, FORWARD_SPEED);
+            lf_set(right_speed, FORWARD_SPEED);
         =}
 
-        reaction(drive) -> reset(STOPPED), notify, left_power, right_power {=
+        reaction(drive) -> reset(STOPPED), notify, left_speed, right_speed {=
             if (!drive->value) {
                 lf_set(notify, "STOPPED");
-                lf_set(left_power, 0.0f);
-                lf_set(right_power, 0.0f);
+                lf_set(left_speed, 0.0f);
+                lf_set(right_speed, 0.0f);
                 lf_set_mode(STOPPED);
             }
         =}
+
+        reaction()
     }
 
     mode REVERSING {
-        reaction(reverse) -> notify, left_power, right_power, start_turn {=
+        reaction(reverse) -> notify, left_speed, right_speed, start_turn {=
             lf_set(notify, "BACKING");
-            lf_set(left_power, -REVERSE_SPEED);
-            lf_set(right_power, -REVERSE_SPEED);
+            lf_set(left_speed, -REVERSE_SPEED);
+            lf_set(right_speed, -REVERSE_SPEED);
             // lf_schedule(start_turn, MSEC(1500));
         =}
 
-        reaction(encoder_left, encoder_right) -> notify, left_power, right_power, start_turn {=
+        reaction(encoder_left, encoder_right) -> notify, left_speed, right_speed, start_turn {=
             int left_ticks = encoder_left->value - self->initial_left;
             int right_ticks = encoder_right->value - self->initial_right;
     
@@ -143,63 +147,63 @@ reactor Robot {
                 lf_set(notify, "STARTING TURN");
                 lf_schedule(start_turn, MSEC(200));
             } else {
-                lf_set(left_power, -REVERSE_SPEED);
-                lf_set(right_power, -REVERSE_SPEED);
+                lf_set(left_speed, -REVERSE_SPEED);
+                lf_set(right_speed, -REVERSE_SPEED);
             }
         =}
 
-        reaction(start_turn) -> left_power, right_power, start_turn, reset(RECOVERY), notify {=
+        reaction(start_turn) -> left_speed, right_speed, start_turn, reset(RECOVERY), notify {=
             lf_set(notify, "STARTING TURN");
-            lf_set(left_power, 0.0f);
-            lf_set(right_power, 0.0f);
+            lf_set(left_speed, 0.0f);
+            lf_set(right_speed, 0.0f);
             lf_set_mode(RECOVERY);
             lf_schedule(start_turn, 0);
         =}
     }
 
     mode RECOVERY {
-        reaction(start_turn) -> left_power, right_power, notify {=
+        reaction(start_turn) -> left_speed, right_speed, notify {=
             lf_set(notify, "TURNING");
             if (self->recovery_side) {
                 switch (self->recovery_side) {
                     case 1: // correct away from the left side
-                        lf_set(left_power, TURN_SPEED_STRONG);
-                        lf_set(right_power, TURN_SPEED_WEAK);
+                        lf_set(left_speed, TURN_SPEED_STRONG);
+                        lf_set(right_speed, TURN_SPEED_WEAK);
                         break;
                     case 2: // correct away from the right side
-                        lf_set(left_power, TURN_SPEED_WEAK);
-                        lf_set(right_power, TURN_SPEED_STRONG);
+                        lf_set(left_speed, TURN_SPEED_WEAK);
+                        lf_set(right_speed, TURN_SPEED_STRONG);
                         break;
                     case 3: // Begin 180 degree turn
-                        lf_set(left_power, TURN_SPEED_STRONG);
-                        lf_set(right_power, -TURN_SPEED_STRONG);
+                        lf_set(left_speed, TURN_SPEED_STRONG);
+                        lf_set(right_speed, -TURN_SPEED_STRONG);
                 }
             }
         =}
 
-        reaction(gyro_z) -> notify, left_power, right_power, straighten, reset(DRIVING) {=
+        reaction(gyro_z) -> notify, left_speed, right_speed, straighten, reset(DRIVING) {=
             self->current_angle += self->_lf_gyro_z->value * 0.05;
             printf("Current Angle: %f", self->current_angle);
 
             if (fabs(self->current_angle) >= self->target_angle){
                 self->current_angle = 0.0;
-                lf_set(left_power, 0.0f);
-                lf_set(right_power, 0.0f);
+                lf_set(left_speed, 0.0f);
+                lf_set(right_speed, 0.0f);
                 lf_set(notify, "DRIVING");
                 lf_set_mode(DRIVING);
             } else {
                 switch (self->recovery_side) {
                     case 1: // correct away from the left side
-                        lf_set(left_power, TURN_SPEED_STRONG);
-                        lf_set(right_power, TURN_SPEED_WEAK);
+                        lf_set(left_speed, TURN_SPEED_STRONG);
+                        lf_set(right_speed, TURN_SPEED_WEAK);
                         break;
                     case 2: // correct away from the right side
-                        lf_set(left_power, TURN_SPEED_WEAK);
-                        lf_set(right_power, TURN_SPEED_STRONG);
+                        lf_set(left_speed, TURN_SPEED_WEAK);
+                        lf_set(right_speed, TURN_SPEED_STRONG);
                         break;
                     case 3: // 180 degree turn
-                        lf_set(left_power, TURN_SPEED_STRONG);
-                        lf_set(right_power, -TURN_SPEED_STRONG);
+                        lf_set(left_speed, TURN_SPEED_STRONG);
+                        lf_set(right_speed, -TURN_SPEED_STRONG);
                         break;
                 }
             }
@@ -207,24 +211,24 @@ reactor Robot {
     }
 
     mode STRAIGHTEN {
-        reaction(straighten) -> left_power, right_power, resume_drive, reset(DRIVING) {=
+        reaction(straighten) -> left_speed, right_speed, resume_drive, reset(DRIVING) {=
             switch (self->recovery_side) {
                 case 1: // Left correction requires straightening out to the right
-                    lf_set(left_power, TURN_SPEED_WEAK);
-                    lf_set(right_power, TURN_SPEED_STRONG);
+                    lf_set(left_speed, TURN_SPEED_WEAK);
+                    lf_set(right_speed, TURN_SPEED_STRONG);
                     break;
                 case 2: // Right correction requires straightening out to the left
-                    lf_set(left_power, TURN_SPEED_STRONG);
-                    lf_set(right_power, TURN_SPEED_WEAK);
+                    lf_set(left_speed, TURN_SPEED_STRONG);
+                    lf_set(right_speed, TURN_SPEED_WEAK);
                     break;
             }
             lf_schedule(resume_drive, MSEC(1000));
             self->recovery_side = 0;
         =}
 
-        reaction(resume_drive) -> left_power, right_power, reset(DRIVING) {=
-            lf_set(left_power, FORWARD_SPEED);
-            lf_set(right_power, FORWARD_SPEED);
+        reaction(resume_drive) -> left_speed, right_speed, reset(DRIVING) {=
+            lf_set(left_speed, FORWARD_SPEED);
+            lf_set(right_speed, FORWARD_SPEED);
             lf_set_mode(DRIVING);
         =}
     }
@@ -236,8 +240,9 @@ main reactor {
     gyro = new Gyro()
     encoder = new Encoders()
     robot = new Robot()
-    motors = new Motors()
+    motors = new MotorsWithFeedback()
     line = new Line()
+    accel = new Accelerometer()
     // accel = new Accelerometer
     logical action clear
 
@@ -247,8 +252,10 @@ main reactor {
     timer end_calibration(10 s)
     state count: int = 0
 
-    robot.left_power -> motors.left_power
-    robot.right_power -> motors.right_power
+    robot.left_speed -> motors.left_speed
+    robot.right_speed -> motors.right_speed
+    encoder.left -> motors.left
+    encoder.right -> motors.right
 
     preamble {=
         float sensor_threshold = 900;
@@ -283,6 +290,7 @@ main reactor {
         lf_set(gyro.trigger, true);
         lf_set(encoder.trigger, true);
         lf_set(line.trigger, true);
+        lf_set(accel.trigger, true);
     =}
 
     reaction(encoder.left) -> robot.encoder_left {=
