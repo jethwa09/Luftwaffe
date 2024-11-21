@@ -31,6 +31,7 @@ reactor Robot {
     state initial_right: int = 0
     state recovery_side: int = 0 // 0 - line sensed from the left, 1 - line sensed from the right
     state position: int = 0 // 0 - climbing, 1 - flat, 2 - descend
+    state slope_flag: int = 0
 
     logical action reverse
     logical action straighten
@@ -76,6 +77,7 @@ reactor Robot {
                 lf_set(right_speed, FORWARD_SPEED);
                 lf_set_mode(DRIVING);
                 lf_set(notify, "DRIVING");
+
             }
         =}
     }
@@ -92,7 +94,7 @@ reactor Robot {
                     case 2: // Line sensed in the center, cliff sensed 
                         lf_set(notify, "CLIFF");
                         self-> recovery_side = 3;
-                        self->target_angle = 180.0;
+                        self->target_angle = 150.0;
                         break;
                     case 3: // Line sensed on the right
                         lf_set(notify, "RIGHT");
@@ -125,10 +127,13 @@ reactor Robot {
         =}
 
         reaction(pitch) -> reset(REVERSING), start_turn {=
-            if (pitch <= 1.0) {
+            if ((pitch->value <= 1.0) && (self->slope_flag == 0)) {
                 lf_schedule(start_turn, MSEC(200));
                 lf_set_mode(REVERSING);
-            }
+                self->slope_flag = 1;
+                self->target_angle = 150.0;
+                self->recovery_side = 3;
+            } 
         =}
     }
 
@@ -199,10 +204,6 @@ reactor Robot {
                 lf_set_mode(DRIVING);
             } else {
                 switch (self->recovery_side) {
-                    case 0: // Reached top of ramp
-                        lf_set(left_speed, TURN_SPEED_STRONG);
-                        lf_set(right_speed, -TURN_SPEED_STRONG);
-                        break;
                     case 1: // correct away from the left side
                         lf_set(left_speed, TURN_SPEED_STRONG);
                         lf_set(right_speed, TURN_SPEED_WEAK);
@@ -299,7 +300,7 @@ main reactor {
         self->drive = true;
     =}
 
-    reaction(t) -> robot.drive, gyro.trigger, encoder.trigger, line.trigger {=
+    reaction(t) -> robot.drive, gyro.trigger, encoder.trigger, line.trigger, accel.trigger {=
         lf_set(robot.drive, self->drive);
         lf_set(gyro.trigger, true);
         lf_set(encoder.trigger, true);
@@ -319,9 +320,12 @@ main reactor {
         lf_set(robot.gyro_z, gyro.z->value);
     =}
 
-    reaction(accel.x, accel.y, accel.z) -> robot.pitch {=
+    reaction(accel.x, accel.y, accel.z) -> robot.pitch, disp.line3 {=
         float pitch = calculate_tilt(accel.x->value, accel.y->value, accel.z->value);
         lf_set(robot.pitch, pitch);
+        static char buf[33];
+        snprintf(buf, 33, "pitch%.1f", pitch);
+        lf_set(disp.line3, buf);
     =}
 
     reaction(line.reflect) ->  robot.line_sensed, disp.line1 {=
@@ -354,11 +358,11 @@ main reactor {
         lf_set(disp.line2, buf);
     =}
 
-    reaction(gyro.x, gyro.y, gyro.z) -> disp.line3 {=
-        static char buf[33];
-        snprintf(buf, 33, "x%.1f y%.1f z%.1f", gyro.x->value, gyro.y->value, gyro.z->value);
-        lf_set(disp.line3, buf);
-    =}
+    // reaction(gyro.x, gyro.y, gyro.z) -> disp.line3 {=
+    //     static char buf[33];
+    //     snprintf(buf, 33, "x%.1f y%.1f z%.1f", gyro.x->value, gyro.y->value, gyro.z->value);
+    //     lf_set(disp.line3, buf);
+    // =}
 
     reaction(clear) -> disp.line1 {=
         lf_set(disp.line1, "");
