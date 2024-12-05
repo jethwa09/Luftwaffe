@@ -1,0 +1,107 @@
+target C {
+    platform: {
+      name: "rp2040",
+      board: "pololu_3pi_2040_robot"
+    },
+    single-threaded: true
+}
+
+import Line from "lib/Line.lf"
+import Display from "lib/Display.lf"
+import Encoders from "lib/Encoders.lf"
+import MotorsWithFeedback from "lib/MotorsWithFeedback.lf"
+
+reactor PIDLineFollower {
+    // Input sensors
+    input left_sensor: int
+    input right_sensor: int
+
+    // Output motors
+    output left_motor: float
+    output right_motor: float
+
+    // PID parameters
+    state kp: double  = 1.0  // Proportional gain
+    state ki: double = 0.1   // Integral gain
+    state kd: double = 0.5  // Derivative gain
+
+    // Internal state
+    state  error: double = 0.0      // Current error
+    state  prev_error: double = 0.0   // Previous error
+    state  integral: double = 0.0    // Integral of error
+
+    // Update PID control
+    reaction(left_sensor, right_sensor) -> left_motor, right_motor {=
+        // Read sensors
+        int left = left_sensor;
+        int right = right_sensor;
+
+        // Calculate error: -1 for left deviation, +1 for right deviation
+        if (left == 1 && right == 0) {
+            self->error = -1.0;
+        } else if (left == 0 && right == 1) {
+            self->error = 1.0;
+        } else if (left == 1 && right == 1) {
+            self->error = 0.0;  // Centered on the line
+        } else {
+            // If no line is detected, stop
+            lf_set(left_motor) = 0;
+            lf_set(right_motor) = 0;
+            return;
+        }
+
+        // PID calculations
+        double proportional = self->kp * self->error;
+        self->integral += self->error;  // Accumulate integral
+        double integral = self->ki * self->integral;
+        double derivative = self->kd * (self->error - self->prev_error);
+        self->prev_error = self->error;  // Update previous error
+
+        // Control signal
+        double correction = proportional + integral + derivative;
+
+        // Base speed for the motors
+        int base_speed = 0.05;
+
+        // Adjust motor speeds
+        lf_set(left_motor) = base_speed - correction;
+        lf_set(right_motor) = base_speed + correction;
+
+        // // Clamp motor values to valid range (0–255)
+        // if (*(self->left_motor) < 0) *(self->left_motor) = 0;
+        // if (*(self->left_motor) > 255) *(self->left_motor) = 255;
+        // if (*(self->right_motor) < 0) *(self->right_motor) = 0;
+        // if (*(self->right_motor) > 255) *(self->right_motor) = 255;
+    =}
+}
+
+main reactor {
+    // Instantiate the PID line follower
+    pidlf = new PIDLineFollower()
+    line = new Line()
+    motors = new MotorsWithFeedback()
+
+    preamble {=
+        float sensor_threshold = 900;
+        
+        bool check_sensor(float sensor_val) {
+            if (sensor_val > sensor_threshold) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+    =}
+
+
+    pidlf.left_sensor -> left_sensor
+    pidlf.right_sensor -> right_sensor
+
+    // Output motor connections
+    output int left_motor
+    output int right_motor
+
+    left_motor -> pidlf.left_motor
+    right_motor -> pidlf.right_motor
+}
+

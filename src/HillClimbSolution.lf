@@ -188,6 +188,7 @@ reactor Robot {
                     case 3: // Begin 180 degree turn
                         lf_set(left_speed, TURN_SPEED_STRONG);
                         lf_set(right_speed, -TURN_SPEED_STRONG);
+                        break;
                 }
             }
         =}

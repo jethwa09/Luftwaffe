@@ -1,0 +1,273 @@
+target C {
+    platform: {
+      name: "rp2040",
+      board: "pololu_3pi_2040_robot"
+    },
+    single-threaded: true
+}
+
+import Line from "lib/Line.lf"
+import Display from "lib/Display.lf"
+import Encoders from "lib/Encoders.lf"
+import MotorsWithFeedback from "lib/MotorsWithFeedback.lf"
+
+reactor Robot {
+    input drive: bool
+    input encoder_left: int
+    input encoder_right: int
+    input left_desired: float
+    input right_desired: float
+
+    state current_left: float
+    state current_right: float
+
+    output left_speed: float
+    output right_speed: float
+    output notify: string
+
+    state turn_side: int
+
+    timer printer(0, 3 s)
+
+    reaction(startup) -> notify {=
+        lf_set(notify, "INIT");
+    =}
+
+    initial mode STOPPED {
+        reaction(drive) -> notify, right_speed, left_speed, reset(DRIVING){=
+            if (drive->value) {
+                // lf_set(left_speed, 0.05f);
+                // lf_set(right_speed, 0.05f);
+                lf_set(notify, "DRIVING");
+                lf_set_mode(DRIVING);
+            }
+        =}
+    }
+
+    mode DRIVING {
+        reaction(left_desired, right_desired)-> notify, left_speed, right_speed {=
+            lf_set(notify, "ADJUSTING");
+            self->current_left = left_desired->value;
+            self->current_right = right_desired->value;
+            lf_set(left_speed, self->current_left);
+            lf_set(right_speed, self->current_right);
+        =}
+
+        reaction(printer) {=
+            printf("Current Left %f\n", self->current_left);
+            printf("Current Right %f\n", self->current_right);
+        =}
+
+
+        reaction(encoder_left, encoder_right) -> notify, left_speed, right_speed {=
+            
+            lf_set(left_speed, self->current_left);
+            lf_set(right_speed, self->current_right);
+        =}
+    }
+}
+
+
+main reactor(calibration_time: time = 5 s, sample_period: time =  10 ms) {
+    line = new Line()
+    disp = new Display()
+    motors = new MotorsWithFeedback()
+    encoder = new Encoders()
+    robot = new Robot()
+
+    timer t(0, sample_period)
+    timer seconds(0, 1 s)  // Timer used to display seconds.
+    timer end_calibration(calibration_time)
+    state count: int = 0
+    state drive: bool = false
+    // Used for PID controller
+    state integral: double = 0.0
+    state derivative: double = 0.0
+    state error: double = 0.0
+    state lastError: double = 0.0 // compare to calculated error
+
+    robot.left_speed -> motors.left_speed
+    robot.right_speed -> motors.right_speed
+    encoder.left -> motors.left
+    encoder.right -> motors.right
+
+    preamble {=
+    #include <math.h>
+        float FORWARD_SPEED = 0.05f;
+        float TURN_SPEED_STRONG = 0.075f;
+        float TURN_SPEED_WEAK = 0.05f;
+        int SETPOINT = 6225; // Desired center point based on the sensor readings
+        float KP = 1.0f; // Proportional Gain
+        float KI = 0.2f; // Integral gain
+        float KD = 0.1f; // derivative gain
+
+        float sensor_threshold = 900;
+        
+        bool check_sensor(float sensor_val) {
+            if (sensor_val > sensor_threshold) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        float calculate_center(uint16_t* sensors, int size) {
+            int center = 0;
+            for (int i = 0; i < size; i++) {
+                center += sensors[i] * i;
+            }
+            return center;
+        }
+    =}
+
+    reaction(startup) -> disp.line0, disp.line1, disp.line2 {=
+        lf_set(disp.line0, "CALIBRATING");
+        lf_set(disp.line1, "Roll robot over");
+        lf_set(disp.line2, "light and dark.");
+    =}
+
+    reaction(seconds) -> disp.line3 {=
+        static char buf[17];
+        snprintf(buf, 17, "time:%8d s", self->count++);
+        lf_set(disp.line3, buf);
+    =}
+
+    reaction(end_calibration) -> line.calibrate {=
+        lf_set(line.calibrate, false);
+        self->drive = true;
+    =}
+
+    reaction(t) -> line.trigger, encoder.trigger, robot.drive {=
+        lf_set(line.trigger, true);
+        lf_set(encoder.trigger, true);
+        lf_set(robot.drive, self->drive);
+    =}
+
+    reaction(encoder.left) -> robot.encoder_left {=
+        lf_set(robot.encoder_left, encoder.left->value);
+    =}
+
+    reaction(encoder.right) -> robot.encoder_right {=
+        lf_set(robot.encoder_right, encoder.right->value);
+    =}
+
+    reaction(line.reflect) -> disp.line2, robot.left_desired, robot.right_desired {=
+        if (!check_sensor(line.reflect->value[1])) {
+            // printf("Left center white\n");
+            self->error = 1;// left center sensor touched white
+        } else if (!check_sensor(line.reflect->value[3])) {
+            // printf("Right center white\n");
+            self->error = -1;// right center sensor touched white
+        } else if (check_sensor(line.reflect->value[1]) && check_sensor(line.reflect->value[3])) {
+            self->error = 0;
+        }
+
+        double proportional = KP * self->error;
+        self->integral += self->error;
+        double integral = self->integral * KI;
+        double derivative = KD * (self->error - self->lastError);
+        self->lastError = self->error;
+
+        double adjust = (proportional + integral + derivative) * 0.01;
+        // printf("Adjust %f\n", adjust);
+        double left_speed = FORWARD_SPEED + adjust;
+        double right_speed = FORWARD_SPEED - adjust;
+
+        if (left_speed < -0.05) left_speed = -0.05; // Clamping values
+        if (left_speed > 0.05) left_speed = 0.05;
+        if (right_speed < -0.05) right_speed = -0.05;
+        if (right_speed > 0.05) right_speed = 0.05;
+            
+        lf_set(robot.left_desired, left_speed);
+        lf_set(robot.right_desired, right_speed);
+        static char buf[17];
+        snprintf(buf, 17, "left: %f", left_speed);
+        lf_set(disp.line2, buf);
+    =}
+
+    reaction(robot.notify) -> disp.line0 {=
+        lf_set(disp.line0, robot.notify->value);
+    =}   
+}
+
+
+// if (check_sensor(line.reflect->value[0]) && !check_sensor(line.reflect->value[4])) {
+//     // printf("Left black\n");
+//     self->error = -1; // left sensor touched black, right did not
+// } else if (!check_sensor(line.reflect->value[1])) {
+//     // printf("Left center white\n");
+//     self->error = 1;// left center sensor touched white
+// } else if (check_sensor(line.reflect->value[2])) {
+//     // center sensor
+// } else if (!check_sensor(line.reflect->value[3])) {
+//     // printf("Right center white\n");
+//     self->error = -1;// right center sensor touched white
+// } else if (check_sensor(line.reflect->value[4]) && !check_sensor(line.reflect->value[0])) {
+//     // printf("Right black\n");
+//     self->error = 1; // right sensor touched black
+// } else if (check_sensor(line.reflect->value[1]) && check_sensor(line.reflect->value[3])) {
+//     self->error = 0;
+// }
+
+// mode DRIVING {
+//     reaction(line_sensed) -> notify, left_speed, right_speed, reset(TURNING) {=
+//         if (line_sensed->value) {
+//             switch (line_sensed->value) {
+//                 case 1: // left side sensed so turn right
+//                     lf_set(left_speed, TURN_SPEED_STRONG);
+//                     lf_set(right_speed, -TURN_SPEED_WEAK);
+//                     self->turn_side = 1;
+//                     lf_set(notify, "RIGHT");
+//                     break;
+//                 case 2: // Right side sensed so turn left
+//                     lf_set(right_speed, TURN_SPEED_STRONG);
+//                     lf_set(left_speed, -TURN_SPEED_WEAK);
+//                     self->turn_side = 2;
+//                     lf_set(notify, "LEFT");
+//                     break;
+//         }
+//         lf_set_mode(TURNING);
+//     }
+//     =}
+
+//     reaction(encoder_left, encoder_right) -> left_speed, right_speed {=
+//         lf_set(left_speed, FORWARD_SPEED);
+//         lf_set(right_speed, FORWARD_SPEED);
+//     =}
+// }
+
+// mode TURNING {
+//     reaction(line_sensed) -> notify, left_speed, right_speed, reset(DRIVING) {=
+//         if (line_sensed->value) {
+//           lf_set(notify, line_sensed->value);
+//           switch (line_sensed->value){ 
+//             case 1: // left side bumped so turn right
+//                 lf_set(left_speed, TURN_SPEED_STRONG);
+//                 lf_set(right_speed, -TURN_SPEED_WEAK);
+//                 self->turn_side = 1;
+//                 break;
+//             case 2: // Right side bumped so turn left
+//                 lf_set(right_speed, TURN_SPEED_STRONG);
+//                 lf_set(left_speed, -TURN_SPEED_WEAK);
+//                 self->turn_side = 2;
+//                 break;
+//             case 3: // All clear
+//                 lf_set(right_speed, FORWARD_SPEED);
+//                 lf_set(left_speed, FORWARD_SPEED);
+//                 lf_set_mode(DRIVING);
+//                 break;
+//             }  
+//         }
+        
+//     =}
+
+//     reaction(encoder_left, encoder_right) -> left_speed, right_speed {=
+//         if (self->turn_side == 1) {
+//             lf_set(left_speed, TURN_SPEED_STRONG); // Turn right
+//             lf_set(right_speed, -TURN_SPEED_WEAK);
+//         } else if (self->turn_side == 2) {
+//             lf_set(right_speed, TURN_SPEED_STRONG); // Turn left
+//             lf_set(left_speed, -TURN_SPEED_WEAK);
+//         }
+//     =}
+// }
