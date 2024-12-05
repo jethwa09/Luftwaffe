@@ -1,0 +1,48 @@
+Config 1:
+float KP = 1.0f;
+float KI = 0.2f; 
+float KD = 0.1f; 
+Bad Results on Track 2
+
+Config 2: 
+float KP = 1.0f; // Proportional Gainfloat 
+KI = 0.05f; // Integral gain
+float KD = 0.1f; // derivative gain
+Good Results on Track 2
+Poor results on Track 3
+
+Config 3:
+float KP = 0.95f; // Proportional Gain
+float KI = 0.03f; // Integral gain
+float KD = 0.2f; // derivative gain
+Good Results on Track 2
+Good Results on Track 3
+Some hiccups on track 3 on a corner
+
+
+Config 4: 
+float KP = 0.95f; // Proportional Gain
+float KI = 0.05f; // Integral gain
+float KD = 0.22f; // derivative gain
+Good results on Track 2. 
+Having a little difficulty on startup. Changed sample period to 25 ms.
+
+
+Config 5: 
+float KP = 1.0f; // Proportional Gain
+float KI = 0.5f; // Integral gain
+float KD = 0.2f; // derivative gain
+Terrible results on Track 2. Integral gain way too high.
+
+Config 6:
+float KP = 0.9f; // Proportional Gain
+float KI = 0.03f; // Integral gain
+float KD = 0.3f; // derivative gain
+Bad results on Track 2.
+
+
+Config 7: 
+float KP = 1.2f; // Proportional Gain
+float KI = 0.09f; // Integral gain
+float KD = 0.5f; // derivative gain
+Good results on Track 3. Doesn't recover if front sensors are off the line.

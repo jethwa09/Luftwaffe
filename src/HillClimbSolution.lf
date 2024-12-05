@@ -21,6 +21,7 @@ reactor Robot {
     input gyro_z: float
     input line_sensed: int
     input pitch: float
+    input roll: float
     output notify: string
     output left_speed: float
     output right_speed: float
@@ -32,11 +33,14 @@ reactor Robot {
     state recovery_side: int = 0 // 0 - line sensed from the left, 1 - line sensed from the right
     state position: int = 0 // 0 - climbing, 1 - flat, 2 - descend
     state slope_flag: int = 0
+    state start_flag: int = 0
+    state check_pitch: int = 0
 
     logical action reverse
     logical action straighten
     logical action start_turn
     logical action resume_drive
+    logical action check_for_pitch
 
     preamble {=
         #include <math.h>
@@ -70,14 +74,18 @@ reactor Robot {
         lf_set(notify, "INIT");
     =}
 
+    reaction(check_for_pitch) {=
+        self->check_pitch = 1;
+    =}
+
     initial mode STOPPED {
-        reaction(drive) -> reset(DRIVING), notify, left_speed, right_speed {=
+        reaction(drive) -> reset(DRIVING), check_for_pitch, notify, left_speed, right_speed {=
             if (drive->value) {
                 lf_set(left_speed, FORWARD_SPEED);
                 lf_set(right_speed, FORWARD_SPEED);
                 lf_set_mode(DRIVING);
                 lf_set(notify, "DRIVING");
-
+                lf_schedule(check_for_pitch, SEC(3));
             }
         =}
     }
@@ -127,13 +135,27 @@ reactor Robot {
         =}
 
         reaction(pitch) -> reset(REVERSING), start_turn {=
-            if ((pitch->value <= 1.0) && (self->slope_flag == 0)) {
+            if ((pitch->value <= 1.0) && (self->slope_flag == 0) && (self->check_pitch == 1)) {
                 lf_schedule(start_turn, MSEC(200));
                 lf_set_mode(REVERSING);
                 self->slope_flag = 1;
                 self->target_angle = 150.0;
                 self->recovery_side = 3;
             } 
+        =}
+
+        reaction(roll) -> start_turn, reset(RECOVERY) {=
+            if ((roll->value < -4.0) && (self->start_flag == 0)) {
+                lf_schedule(start_turn, 0);
+                self->recovery_side = 1;
+                self->start_flag = 1;
+                lf_set_mode(RECOVERY);
+            } else if ((roll->value > 4.0) && (self->start_flag == 0)) {
+                lf_schedule(start_turn, 0);
+                self->recovery_side = 2;
+                self->start_flag = 1;
+                lf_set_mode(RECOVERY);
+            }
         =}
     }
 
@@ -321,11 +343,13 @@ main reactor {
         lf_set(robot.gyro_z, gyro.z->value);
     =}
 
-    reaction(accel.x, accel.y, accel.z) -> robot.pitch, disp.line3 {=
+    reaction(accel.x, accel.y, accel.z) -> robot.pitch, robot.roll, disp.line3 {=
         float pitch = calculate_tilt(accel.x->value, accel.y->value, accel.z->value);
+        float roll = calculate_tilt(accel.y->value, accel.x->value, accel.z->value);
         lf_set(robot.pitch, pitch);
+        lf_set(robot.roll, roll);
         static char buf[33];
-        snprintf(buf, 33, "pitch%.1f", pitch);
+        snprintf(buf, 33, "roll%.1f", roll);
         lf_set(disp.line3, buf);
     =}
 
